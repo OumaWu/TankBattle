@@ -1,5 +1,6 @@
 package tank;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.event.KeyEvent;
@@ -11,20 +12,21 @@ import javax.swing.JPanel;
 
 class MyPanel extends JPanel implements KeyListener, Runnable{
 	
+	private static final long serialVersionUID = 1L;
 	//定义画布参数
 	//定义画布大小
-	private final static int width = 1000;
-	private final static int height = 800;
+	public final static int width = 600;
+	public final static int height = 500;
 	
 	//定义一个我的坦克
 	private Hero hero;
 	
 	//定义敌人的坦克组
 	//用Vector确保线程安全
-	private Vector<Tank> tks = new Vector<Tank>();
+	private Vector<EnemyTank> tks;
 	
 	//定义坦克数量
-	private final int maxTankNum = 10;
+	private final int maxTankNum = 5;
 	
 	//定义爆炸效果图片
 	private final Image images[] = new Image[32];
@@ -33,17 +35,23 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 	
 	//构造函数
 	public MyPanel(){
-		hero = new Hero(460, 750);
+		
+		//恢复记录
+		Recorder.getRecord();
+		
+		tks = new Vector<EnemyTank>();
+		hero = new Hero((MyPanel.width-40)/2, MyPanel.height-50);
+		hero.setEts(tks);
 		
 		//初始化敌人坦克
 		for (int i=0; i<maxTankNum; i++){
 			//创建一辆敌人的坦克对象
-			tks.add(new Tank((i+2)*70, 0));
+			EnemyTank et = new EnemyTank((i+1)*70, 0);
+			//将MyPanel的敌人坦克向量交给该敌人坦克向量
+			et.setEts(tks);
 			
-			//启动敌人的坦克
-			Thread t = new Thread(tks.get(i));
-			t.start();
-			
+			//将敌人坦克添加到向量
+			tks.add(et);
 		}
 		
 		//初始化图片
@@ -63,6 +71,44 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 //									: "/expl_09_000"+Integer.toString(i)+".png"));
 		}
 		
+		//播放开战声音
+		new AudioPlayer("./src/tank/tb_newgame.wav").start();
+		
+	}
+	
+	/**
+	 * @return the tks
+	 */
+	public Vector<EnemyTank> getTks() {
+		return tks;
+	}
+
+	/**
+	 * @param tks the tks to set
+	 */
+	public void setTks(Vector<EnemyTank> tks) {
+		this.tks = tks;
+		//设置向量
+		for(EnemyTank et : this.tks)
+			et.setEts(tks);
+	}
+
+	/**
+	 * 画出提示信息
+	 */
+	public void showInfo(Graphics g){
+		//画出提示信息坦克，(改坦克不参与战斗)
+		this.drawTank(g, new EnemyTank((int)(MyPanel.width*0.1), MyPanel.height+10));
+		g.setColor(Color.black);
+		g.drawString(Recorder.getEnNum()+"", (int)(MyPanel.width*0.1)+50, MyPanel.height+40);
+		this.drawTank(g, new Hero((int)(MyPanel.width*0.3), MyPanel.height+10));
+		g.setColor(Color.black);
+		g.drawString(Recorder.getMyLife()+"", (int)(MyPanel.width*0.3)+50, MyPanel.height+40);
+		
+		//画出玩家总成绩
+		g.setColor(Color.black);
+		g.setFont(new Font("宋体", Font.BOLD, 20));
+		g.drawString("您的总成绩 : " + Recorder.getAllEnNum(), (int)(MyPanel.width*0.4)+50, MyPanel.height+40);
 	}
 	
 	/**
@@ -72,6 +118,8 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 		
 		super.paint(g);
 		g.fillRect(0, 0, MyPanel.width, MyPanel.height);
+		//画出提示信息
+		this.showInfo(g);
 		
 		/**
 		 * 画自己的坦克
@@ -84,16 +132,17 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 		for(int i=0; i<hero.getBullets().size(); i++){
 			
 			Bullet bullet = hero.getBullets().get(i);
-			
-			if(bullet!=null&&!bullet.isDead()){
-				this.drawBullet(g, bullet);
-			}
-			
+//			if(bullet!=null&&!bullet.isDead()){
+//				this.drawBullet(g, bullet);
+//			}	
 			if(bullet.isDead()){
 				//从bullets中删除该子弹
 				hero.getBullets().remove(bullet);
 				//将子弹实例从内存删除
 				bullet = null;
+			}
+			else {
+				this.drawBullet(g, bullet);
 			}
 		}
 		
@@ -120,15 +169,16 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 				//再画敌人的子弹
 				for(int i=0; i<tank.getBullets().size(); i++){
 					
-					Bullet bullet = tank.getBullets().get(i);
-					
-					if(bullet!=null&&!bullet.isDead()){
-						this.drawBullet(g, bullet);
-					}
-					
+					Bullet bullet = tank.getBullets().get(i);	
+//					if(bullet!=null&&!bullet.isDead()){
+//						this.drawBullet(g, bullet);
+//					}
 					if(bullet.isDead()){
 						//从bullets中删除该子弹
 						hero.getBullets().remove(bullet);
+					}
+					else {
+						this.drawBullet(g, bullet);
 					}
 				}
 			}
@@ -139,7 +189,7 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 	/**
 	 * 写一个函数专门判断子弹是否击中坦克
 	 */
-	public void hitTank(Bullet bullet, Tank tank){
+	public boolean hitTank(Bullet bullet, Tank tank){
 		//判断坦克的方向
 		switch(tank.getDirection()){
 			case UP :
@@ -155,8 +205,8 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 					tank.setDead(true);
 					//创建一颗炸弹，放入Vector
 					this.explosion.add(new Explosion(tank.getX(), tank.getY()));
-					//将坦克实例从内存删除
-					tank = null;
+					//返回true,说明被击中
+					return true;
 				}
 				break;
 			case LEFT :
@@ -172,10 +222,11 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 					tank.setDead(true);
 					//创建一颗炸弹，放入Vector
 					this.explosion.add(new Explosion(tank.getX(), tank.getY()));
-					//将坦克实例从内存删除
-					tank = null;
+					//返回true,说明被击中
+					return true;
 				}
 		}
+		return false;
 	}
 	
 	/**
@@ -260,6 +311,18 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 	}
 	
 	/**
+	 * 判断地方坦克是否全死亡
+	 */
+	public boolean AllDead(){
+		boolean result = true;
+		for (Tank tank : this.tks){
+			if(!tank.isDead())
+				return false;
+		}
+		return result;
+	}
+	
+	/**
 	 * 判断是否击中敌方坦克
 	 */
 	public void hitEnemy(){
@@ -271,7 +334,12 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 				for(Tank tank : tks){
 					//取出坦克
 					if(!tank.isDead())
-						this.hitTank(bullet, tank);
+						if(this.hitTank(bullet, tank)){
+//							tks.remove(tank);
+							tank = null;
+							Recorder.reduceEnNum();
+							Recorder.addAllEnNum();
+						}
 				}
 			}
 		}
@@ -289,7 +357,8 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 				if(!bullet.isDead()){
 					//与玩家坦克判断
 					if(!hero.isDead()){
-						this.hitTank(bullet, hero);
+						if(this.hitTank(bullet, hero))
+							hero.setDead(true);
 					}
 				}
 			}
@@ -305,16 +374,44 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 		if(!hero.isDead()){
 			switch(e.getKeyCode()){
 			case KeyEvent.VK_DOWN :
-				hero.move(Direction.DOWN);
+				//保证玩家坦克不出边界
+				if(hero.getY()<MyPanel.height-50&&!hero.isTouched()){
+					hero.move(Direction.DOWN);
+				}
+				//如果移动会超出边界，就只改变方向，不改变坦克坐标
+				else{
+					hero.setDirection(Direction.DOWN);
+				}
 				break;
 			case KeyEvent.VK_UP :
-				hero.move(Direction.UP);
+				//保证玩家坦克不出边界
+				if(hero.getY()>0&&!hero.isTouched()){
+					hero.move(Direction.UP);
+				}
+				//如果移动会超出边界，就只改变方向，不改变坦克坐标
+				else{
+					hero.setDirection(Direction.UP);
+				}
 				break;
 			case KeyEvent.VK_LEFT :
-				hero.move(Direction.LEFT);
+				//保证玩家坦克不出边界
+				if(hero.getX()>0&&!hero.isTouched()){
+					hero.move(Direction.LEFT);
+				}
+				//如果移动会超出边界，就只改变方向，不改变坦克坐标
+				else{
+					hero.setDirection(Direction.LEFT);
+				}
 				break;
 			case KeyEvent.VK_RIGHT :
-				hero.move(Direction.RIGHT);
+				//保证玩家坦克不出边界
+				if(hero.getX()<MyPanel.width-50&&!hero.isTouched()){
+					hero.move(Direction.RIGHT);
+				}
+				//如果移动会超出边界，就只改变方向，不改变坦克坐标
+				else{
+					hero.setDirection(Direction.RIGHT);
+				}
 				break;
 			case KeyEvent.VK_A :
 				//开火
@@ -327,7 +424,7 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 	}
 
 	@Override
-	public void keyReleased(KeyEvent arg0) {}
+	public void keyReleased(KeyEvent e) {}
 
 	@Override
 	public void keyTyped(KeyEvent e) {}
@@ -342,11 +439,64 @@ class MyPanel extends JPanel implements KeyListener, Runnable{
 				e.printStackTrace();
 			}
 			//判断是否击中敌方坦克
-			hitEnemy();
+			if(!AllDead()){
+				hitEnemy();
+			}
 			//判断是否击中我方坦克
-			hitMe();
+			if(!hero.isDead()){
+				hitMe();
+			}
 			this.repaint();
+		}
+	}
+
+	public void setEnemyThread() {
+		for (EnemyTank et : this.tks){
+			Thread t = new Thread(et);
+			t.start();
 		}
 	}
 	
 }
+
+/**
+ * 就是一个提示作用
+ */
+class MyStartPanel extends JPanel implements Runnable {
+	
+	private boolean times = true;
+	
+	private static final long serialVersionUID = 1L;
+	public void paint(Graphics g){
+		super.paint(g);
+		g.fillRect(0, 0, MyPanel.width, MyPanel.height);
+		
+		g.setColor(Color.yellow);
+		//开关信息的字体
+		Font myFont = new Font("华文新魏", Font.BOLD, 30);
+		g.setFont(myFont);
+		
+		if(times){
+			g.drawString("stage 1", (MyPanel.width-105)/2, (MyPanel.height-30)/2);
+		}
+	}
+	@Override
+	public void run() {
+		while(true){
+			//休眠
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			times = !times;
+			//重画
+			this.repaint();
+		}
+	}
+}
+
+
+
+
